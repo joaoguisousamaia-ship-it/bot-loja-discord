@@ -1,0 +1,14 @@
+# Environment and secrets
+.env
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Logs and runtime artifacts
+logs/*.log
+logs/*.lock
+logs/checkout_burst/*.cooldown
+
+# Editor
+.vscode/

@@ -1,0 +1,16 @@
+{
+  "name": "bot-loja-discord",
+  "version": "1.0.0",
+  "description": "Bot de loja no Discord com botao Comprar e canal de checkout",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "discord.js": "^14.20.0",
+    "dotenv": "^16.4.5"
+  }
+}
