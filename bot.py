@@ -173,8 +173,23 @@ def detect_blocked_payment_provider(payment_details: dict) -> str | None:
 
 LOGGER = setup_logger()
 
-if not BOT_TOKEN or not CLIENT_ID or not GUILD_ID or not LOJA_CHANNEL_ID:
-    raise RuntimeError("Variaveis obrigatorias ausentes no .env")
+REQUIRED_ENV_VALUES = {
+    "BOT_TOKEN": BOT_TOKEN,
+    "CLIENT_ID": CLIENT_ID,
+    "GUILD_ID": GUILD_ID,
+    "LOJA_CHANNEL_ID": LOJA_CHANNEL_ID,
+}
+MISSING_REQUIRED_ENV = [
+    key for key, value in REQUIRED_ENV_VALUES.items() if not (value or "").strip()
+]
+
+if MISSING_REQUIRED_ENV:
+    missing_list = ", ".join(MISSING_REQUIRED_ENV)
+    raise RuntimeError(
+        "Variaveis obrigatorias ausentes: "
+        f"{missing_list}. "
+        "No Railway, configure essas chaves em Variables."
+    )
 
 GUILD_ID_INT = parse_env_int(GUILD_ID, "GUILD_ID", required=True)
 LOJA_CHANNEL_ID_INT = parse_env_int(LOJA_CHANNEL_ID, "LOJA_CHANNEL_ID", required=True)
