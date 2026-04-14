@@ -4229,71 +4229,67 @@ async def handle_postar_produto(
         return
     RECENT_POST_REQUESTS[request_key] = now
 
-    if not loja_channel_id:
-        await interaction.followup.send(
-            "Canal da loja nao configurado no .env.", ephemeral=True
-        )
-        return
+    if loja_channel_id:
+        loja_channel = guild.get_channel(loja_channel_id)
+        if loja_channel is None:
+            try:
+                fetched = await guild.fetch_channel(loja_channel_id)
+                loja_channel = fetched if isinstance(fetched, discord.TextChannel) else None
+            except Exception:
+                loja_channel = None
 
-    loja_channel = guild.get_channel(loja_channel_id)
-    if loja_channel is None:
+        if not isinstance(loja_channel, discord.TextChannel):
+            await interaction.followup.send(canal_invalido_msg, ephemeral=True)
+            return
+
         try:
-            fetched = await guild.fetch_channel(loja_channel_id)
-            loja_channel = fetched if isinstance(fetched, discord.TextChannel) else None
+            action, message = await post_or_update_product_card(
+                guild,
+                loja_channel,
+                product,
+                get_product_embed_builder(product)(),
+                build_product_view_for(product, bot),
+                bot.user.id if bot.user else None,
+            )
+        except ProductPostInProgressError:
+            await interaction.followup.send(
+                "Uma postagem deste produto ja esta em andamento. Tente novamente em 2 segundos.",
+                ephemeral=True,
+            )
+            return
+        except ProductCardSyncError:
+            await interaction.followup.send(
+                (
+                    "Card anterior nao foi encontrado agora. Bloqueei esta tentativa para evitar duplicados. "
+                    "Execute o comando novamente para recriar com seguranca."
+                ),
+                ephemeral=True,
+            )
+            return
         except Exception:
-            loja_channel = None
+            LOGGER.exception(
+                "Falha inesperada ao postar produto. guild_id=%s user_id=%s product_id=%s",
+                guild.id,
+                interaction.user.id,
+                product.product_id,
+            )
+            await interaction.followup.send(
+                "Erro inesperado ao postar o card. Tente novamente em alguns segundos.",
+                ephemeral=True,
+            )
+            return
 
-    if not isinstance(loja_channel, discord.TextChannel):
-        await interaction.followup.send(canal_invalido_msg, ephemeral=True)
-        return
+        if action == "updated":
+            await interaction.followup.send(
+                (
+                    "Produto ja estava postado; card atualizado com sucesso. "
+                    f"Mensagem: https://discord.com/channels/{guild.id}/{loja_channel.id}/{message.id}"
+                ),
+                ephemeral=True,
+            )
+            return
 
-    try:
-        action, message = await post_or_update_product_card(
-            guild,
-            loja_channel,
-            product,
-            get_product_embed_builder(product)(),
-            build_product_view_for(product, bot),
-            bot.user.id if bot.user else None,
-        )
-    except ProductPostInProgressError:
-        await interaction.followup.send(
-            "Uma postagem deste produto ja esta em andamento. Tente novamente em 2 segundos.",
-            ephemeral=True,
-        )
-        return
-    except ProductCardSyncError:
-        await interaction.followup.send(
-            (
-                "Card anterior nao foi encontrado agora. Bloqueei esta tentativa para evitar duplicados. "
-                "Execute o comando novamente para recriar com seguranca."
-            ),
-            ephemeral=True,
-        )
-        return
-    except Exception:
-        LOGGER.exception(
-            "Falha inesperada ao postar produto. guild_id=%s user_id=%s product_id=%s",
-            guild.id,
-            interaction.user.id,
-            product.product_id,
-        )
-        await interaction.followup.send(
-            "Erro inesperado ao postar o card. Tente novamente em alguns segundos.",
-            ephemeral=True,
-        )
-        return
-
-    if action == "updated":
-        await interaction.followup.send(
-            (
-                "Produto ja estava postado; card atualizado com sucesso. "
-                f"Mensagem: https://discord.com/channels/{guild.id}/{loja_channel.id}/{message.id}"
-            ),
-            ephemeral=True,
-        )
-    else:
-        await interaction.followup.send(sucesso_msg, ephemeral=True)
+    await interaction.followup.send(sucesso_msg, ephemeral=True)
 
 
 @app_commands.command(
