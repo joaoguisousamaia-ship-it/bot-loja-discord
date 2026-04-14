@@ -1862,14 +1862,7 @@ class SupportTicketManageView(discord.ui.View):
         self, interaction: discord.Interaction, button: discord.ui.Button
     ) -> None:
         role_id = get_assumir_ticket_role_id()
-        if not role_id:
-            await interaction.response.send_message(
-                "ASSUMIR_TICKET_ROLE_ID nao configurado no .env.",
-                ephemeral=True,
-            )
-            return
-
-        if not await user_can_post_products(interaction, role_id):
+        if role_id and not await user_can_post_products(interaction, role_id):
             await interaction.response.send_message(
                 "Apenas o cargo configurado para assumir tickets pode usar este botao.",
                 ephemeral=True,
@@ -1917,13 +1910,7 @@ class SupportTicketManageView(discord.ui.View):
         self, interaction: discord.Interaction, button: discord.ui.Button
     ) -> None:
         role_id = get_assumir_ticket_role_id()
-        if not role_id:
-            await interaction.response.send_message(
-                "ASSUMIR_TICKET_ROLE_ID nao configurado no .env.", ephemeral=True
-            )
-            return
-
-        if not await user_can_post_products(interaction, role_id):
+        if role_id and not await user_can_post_products(interaction, role_id):
             await interaction.response.send_message(
                 "Apenas o cargo configurado para tickets pode excluir tickets.",
                 ephemeral=True,
@@ -4218,13 +4205,7 @@ async def handle_postar_produto(
         RECENT_POST_INTERACTIONS[interaction_id] = now
 
     postar_role_id = get_postar_role_id()
-    if not postar_role_id:
-        await interaction.followup.send(
-            "POSTAR_ROLE_ID nao configurado no .env.", ephemeral=True
-        )
-        return
-
-    if not await user_can_post_products(interaction, postar_role_id):
+    if postar_role_id and not await user_can_post_products(interaction, postar_role_id):
         await interaction.followup.send(
             "Apenas o cargo configurado pode usar este comando.", ephemeral=True
         )
@@ -4389,13 +4370,7 @@ async def postar_produto5(
 )
 async def ticket(interaction: discord.Interaction) -> None:
     postar_role_id = get_postar_role_id()
-    if not postar_role_id:
-        await interaction.response.send_message(
-            "POSTAR_ROLE_ID nao configurado no .env.", ephemeral=True
-        )
-        return
-
-    if not await user_can_post_products(interaction, postar_role_id):
+    if postar_role_id and not await user_can_post_products(interaction, postar_role_id):
         await interaction.response.send_message(
             "Apenas o cargo configurado pode postar o painel de ticket.",
             ephemeral=True,
@@ -4581,14 +4556,7 @@ async def resetar_entrega(
     produto: app_commands.Choice[str] | None = None,
 ) -> None:
     role_id = get_manage_role_command_role_id()
-    if not role_id:
-        await interaction.response.send_message(
-            "MANAGE_ROLE_COMMAND_ROLE_ID nao configurado no .env.",
-            ephemeral=True,
-        )
-        return
-
-    if not await user_can_post_products(interaction, role_id):
+    if role_id and not await user_can_post_products(interaction, role_id):
         await interaction.response.send_message(
             "Apenas o cargo configurado pode usar este comando.",
             ephemeral=True,
@@ -4635,14 +4603,7 @@ async def resetar_entrega(
 )
 async def ver_estoque(interaction: discord.Interaction) -> None:
     role_id = get_manage_role_command_role_id()
-    if not role_id:
-        await interaction.response.send_message(
-            "MANAGE_ROLE_COMMAND_ROLE_ID nao configurado no .env.",
-            ephemeral=True,
-        )
-        return
-
-    if not await user_can_post_products(interaction, role_id):
+    if role_id and not await user_can_post_products(interaction, role_id):
         await interaction.response.send_message(
             "Apenas o cargo configurado pode usar este comando.",
             ephemeral=True,
@@ -4661,14 +4622,7 @@ async def ver_estoque(interaction: discord.Interaction) -> None:
 )
 async def postar_estoque(interaction: discord.Interaction) -> None:
     role_id = get_manage_role_command_role_id()
-    if not role_id:
-        await interaction.response.send_message(
-            "MANAGE_ROLE_COMMAND_ROLE_ID nao configurado no .env.",
-            ephemeral=True,
-        )
-        return
-
-    if not await user_can_post_products(interaction, role_id):
+    if role_id and not await user_can_post_products(interaction, role_id):
         await interaction.response.send_message(
             "Apenas o cargo configurado pode usar este comando.",
             ephemeral=True,
@@ -4697,14 +4651,7 @@ async def postar_estoque(interaction: discord.Interaction) -> None:
 )
 async def painel_pedidos(interaction: discord.Interaction) -> None:
     role_id = get_manage_role_command_role_id()
-    if not role_id:
-        await interaction.response.send_message(
-            "MANAGE_ROLE_COMMAND_ROLE_ID nao configurado no .env.",
-            ephemeral=True,
-        )
-        return
-
-    if not await user_can_post_products(interaction, role_id):
+    if role_id and not await user_can_post_products(interaction, role_id):
         await interaction.response.send_message(
             "Apenas o cargo configurado pode usar este comando.",
             ephemeral=True,
@@ -4745,15 +4692,12 @@ async def send_temp_reply(ctx: commands.Context, content: str) -> None:
 @commands.guild_only()
 async def addcargo(ctx: commands.Context, membro: discord.Member, cargo: discord.Role) -> None:
     role_id = get_manage_role_command_role_id()
-    if not role_id:
-        await send_temp_reply(ctx, "MANAGE_ROLE_COMMAND_ROLE_ID nao configurado no .env.")
-        return
 
     if not isinstance(ctx.author, discord.Member) or ctx.guild is None:
         await send_temp_reply(ctx, "Comando disponivel apenas em servidor.")
         return
 
-    if not user_has_role(ctx.author, role_id):
+    if role_id and not user_has_role(ctx.author, role_id):
         await send_temp_reply(ctx, "Voce nao tem permissao para usar este comando.")
         return
 
@@ -4809,15 +4753,12 @@ async def addcargo_error(ctx: commands.Context, error: commands.CommandError) ->
 @commands.guild_only()
 async def remcargo(ctx: commands.Context, membro: discord.Member, cargo: discord.Role) -> None:
     role_id = get_manage_role_command_role_id()
-    if not role_id:
-        await send_temp_reply(ctx, "MANAGE_ROLE_COMMAND_ROLE_ID nao configurado no .env.")
-        return
 
     if not isinstance(ctx.author, discord.Member) or ctx.guild is None:
         await send_temp_reply(ctx, "Comando disponivel apenas em servidor.")
         return
 
-    if not user_has_role(ctx.author, role_id):
+    if role_id and not user_has_role(ctx.author, role_id):
         await send_temp_reply(ctx, "Voce nao tem permissao para usar este comando.")
         return
 
