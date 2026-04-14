@@ -90,7 +90,11 @@ def parse_env_int(value: str, key: str, required: bool = False) -> int | None:
     if not cleaned.isdigit():
         if required:
             raise RuntimeError(f"Variavel obrigatoria invalida no .env: {key}")
-        LOGGER.warning("Variavel opcional invalida no .env ignorada: %s=%s", key, cleaned)
+        # Use getLogger directly so this is safe to call before the module-level
+        # LOGGER is assigned (e.g. during early module initialisation).
+        logging.getLogger("bot_loja").warning(
+            "Variavel opcional invalida no .env ignorada: %s=%s", key, cleaned
+        )
         return None
 
     return int(cleaned)
