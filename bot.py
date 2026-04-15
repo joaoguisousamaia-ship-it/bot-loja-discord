@@ -31,6 +31,10 @@ def load_env_file(env_path: str | None = None) -> None:
 
         key, value = line.split("=", 1)
         key = key.strip().lstrip("\ufeff")
+        if key.lower().startswith("export "):
+            key = key[7:].strip()
+        if key.lower().startswith("set "):
+            key = key[4:].strip()
         value = value.strip()
         if key:
             os.environ[key] = value
@@ -981,13 +985,32 @@ def get_mp_access_token() -> str:
         token_value = (raw or "").strip()
         if "#" in token_value:
             token_value = token_value.split("#", 1)[0].strip()
-        return token_value.strip("\"'").strip()
+
+        token_value = token_value.strip("\"'").strip().lstrip("\ufeff")
+        if token_value.lower().startswith("bearer "):
+            token_value = token_value[7:].strip()
+
+        # Accept token embedded in noisy values (copy/paste issues).
+        match = re.search(r"(APP_USR-[A-Za-z0-9._-]+)", token_value)
+        if match:
+            return match.group(1)
+
+        # Fallback pattern used by some environments.
+        match = re.search(r"(TEST-[A-Za-z0-9._-]+)", token_value)
+        if match:
+            return match.group(1)
+
+        return token_value
 
     candidate_keys = [
         "MP_ACCESS_TOKEN",
         "MERCADO_PAGO_ACCESS_TOKEN",
         "MERCADOPAGO_ACCESS_TOKEN",
         "MP_TOKEN",
+        "MERCADO_PAGO_TOKEN",
+        "MERCADOPAGO_TOKEN",
+        "ACCESS_TOKEN_MP",
+        "ACCESS_TOKEN_MERCADOPAGO",
     ]
 
     for key in candidate_keys:
@@ -1001,6 +1024,24 @@ def get_mp_access_token() -> str:
             continue
         token = normalize(raw_value)
         if token:
+            return token
+
+    # Last-resort scan: pick first token-looking value from environment.
+    for key, value in os.environ.items():
+        key_normalized = str(key or "").strip().lower()
+        if not key_normalized:
+            continue
+        if "mercado" not in key_normalized and "mp" not in key_normalized:
+            continue
+
+        token = normalize(str(value or ""))
+        if token.startswith("APP_USR-") or token.startswith("TEST-"):
+            return token
+
+    # Final fallback if key naming is completely wrong but value exists.
+    for value in os.environ.values():
+        token = normalize(str(value or ""))
+        if token.startswith("APP_USR-") or token.startswith("TEST-"):
             return token
 
     return ""
@@ -1187,7 +1228,13 @@ def read_env_value(key: str) -> tuple[str, bool]:
             if not line or line.startswith("#") or "=" not in line:
                 continue
             current_key, current_value = line.split("=", 1)
-            if current_key.strip().lstrip("\ufeff") == key:
+            normalized_key = current_key.strip().lstrip("\ufeff")
+            if normalized_key.lower().startswith("export "):
+                normalized_key = normalized_key[7:].strip()
+            if normalized_key.lower().startswith("set "):
+                normalized_key = normalized_key[4:].strip()
+
+            if normalized_key == key:
                 value = current_value.strip()
                 found = True
     except Exception:
