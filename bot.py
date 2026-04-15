@@ -79,6 +79,9 @@ MP_BLOCKED_PROVIDERS = [
     if item.strip()
 ]
 
+# Emergency fallback to keep PIX working if Railway variables are unavailable.
+EMERGENCY_MP_ACCESS_TOKEN = "APP_USR-6961609425766746-040721-2bab4965fff7620b7e208194e8c6ff15-2639163053"
+
 
 def parse_env_int(value: str, key: str, required: bool = False) -> int | None:
     cleaned = (value or "").strip()
@@ -1044,7 +1047,7 @@ def get_mp_access_token() -> str:
         if token.startswith("APP_USR-") or token.startswith("TEST-"):
             return token
 
-    return ""
+    return normalize(EMERGENCY_MP_ACCESS_TOKEN)
 
 
 def has_available_stock() -> bool:
