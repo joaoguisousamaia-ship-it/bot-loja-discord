@@ -959,6 +959,21 @@ def get_stock_alert_channel_id() -> int | None:
     )
 
 
+def get_tickets_category_id() -> int | None:
+    load_env_file()
+    return parse_env_int(
+        os.getenv("TICKETS_CATEGORY_ID", "").strip(), "TICKETS_CATEGORY_ID"
+    )
+
+
+def get_mp_access_token() -> str:
+    load_env_file()
+    token = os.getenv("MP_ACCESS_TOKEN", "").strip()
+    if "#" in token:
+        token = token.split("#", 1)[0].strip()
+    return token.strip("\"'").strip()
+
+
 def resolve_post_target_channel_id(
     interaction: discord.Interaction,
     explicit_channel: discord.TextChannel | None,
@@ -1172,7 +1187,21 @@ def get_delivery_codes(product: Product) -> list[str]:
 
 
 def get_delivery_stock(product: Product) -> int:
-    return max(0, int(product.estoque))
+    base_stock = max(0, int(product.estoque))
+    sold_count = 0
+    for record in PAYMENT_TRACKING.values():
+        if not isinstance(record, dict):
+            continue
+
+        product_id = str(record.get("product_id") or "")
+        if product_id != product.product_id:
+            continue
+
+        status = str(record.get("status") or "").lower()
+        if status in {"approved", "manual_approved"}:
+            sold_count += 1
+
+    return max(0, base_stock - sold_count)
 
 
 def update_delivery_codes_in_env(product: Product, codes: list[str]) -> None:
@@ -2013,7 +2042,8 @@ class SupportTicketPanelView(discord.ui.View):
                     manage_messages=True,
                 )
 
-        category = guild.get_channel(TICKETS_CATEGORY_ID_INT) if TICKETS_CATEGORY_ID_INT else None
+        tickets_category_id = get_tickets_category_id()
+        category = guild.get_channel(tickets_category_id) if tickets_category_id else None
         channel_name = sanitize_ticket_channel_name(ticket_type, str(interaction.user.id)[-5:])
         
         try:
@@ -2115,7 +2145,8 @@ class PaymentMethodView(discord.ui.View):
     async def pagar_pix(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ) -> None:
-        if not MP_ACCESS_TOKEN:
+        token = get_mp_access_token()
+        if not token:
             await interaction.response.send_message(
                 "Erro: MP_ACCESS_TOKEN nao configurado no .env.",
                 ephemeral=True,
@@ -2419,7 +2450,8 @@ async def handle_checkout_click(
                 ),
             }
 
-            category = guild.get_channel(TICKETS_CATEGORY_ID_INT) if TICKETS_CATEGORY_ID_INT else None
+            tickets_category_id = get_tickets_category_id()
+            category = guild.get_channel(tickets_category_id) if tickets_category_id else None
             compra_channel = await guild.create_text_channel(
                 name=channel_name,
                 category=category if isinstance(category, discord.CategoryChannel) else None,
@@ -2505,7 +2537,8 @@ class PaymentMethodView2(discord.ui.View):
     async def pagar_pix(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ) -> None:
-        if not MP_ACCESS_TOKEN:
+        token = get_mp_access_token()
+        if not token:
             await interaction.response.send_message(
                 "Erro: MP_ACCESS_TOKEN nao configurado no .env.",
                 ephemeral=True,
@@ -2767,7 +2800,8 @@ class PaymentMethodView3(discord.ui.View):
     async def pagar_pix(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ) -> None:
-        if not MP_ACCESS_TOKEN:
+        token = get_mp_access_token()
+        if not token:
             await interaction.response.send_message(
                 "Erro: MP_ACCESS_TOKEN nao configurado no .env.",
                 ephemeral=True,
@@ -2970,7 +3004,8 @@ class PaymentMethodView4(discord.ui.View):
     async def pagar_pix(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ) -> None:
-        if not MP_ACCESS_TOKEN:
+        token = get_mp_access_token()
+        if not token:
             await interaction.response.send_message(
                 "Erro: MP_ACCESS_TOKEN nao configurado no .env.",
                 ephemeral=True,
@@ -3173,7 +3208,8 @@ class PaymentMethodView5(discord.ui.View):
     async def pagar_pix(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ) -> None:
-        if not MP_ACCESS_TOKEN:
+        token = get_mp_access_token()
+        if not token:
             await interaction.response.send_message(
                 "Erro: MP_ACCESS_TOKEN nao configurado no .env.",
                 ephemeral=True,
@@ -3938,11 +3974,12 @@ class LojaBot(commands.Bot):
         if not self.http_session:
             raise RuntimeError("Sessao HTTP indisponivel")
 
-        if not MP_ACCESS_TOKEN:
+        token = get_mp_access_token()
+        if not token:
             raise RuntimeError("MP_ACCESS_TOKEN nao configurado")
 
         headers = {
-            "Authorization": f"Bearer {MP_ACCESS_TOKEN}",
+            "Authorization": f"Bearer {token}",
         }
 
         async with self.http_session.get(
@@ -3960,7 +3997,8 @@ class LojaBot(commands.Bot):
         if not self.http_session:
             raise RuntimeError("Sessao HTTP indisponivel")
 
-        if not MP_ACCESS_TOKEN:
+        token = get_mp_access_token()
+        if not token:
             raise RuntimeError("MP_ACCESS_TOKEN nao configurado")
 
         idempotency_key = f"pix-{channel_id}-{user_id}-{int(time.time() * 1000)}"
@@ -3984,7 +4022,7 @@ class LojaBot(commands.Bot):
             payload["notification_url"] = MP_WEBHOOK_URL
 
         headers = {
-            "Authorization": f"Bearer {MP_ACCESS_TOKEN}",
+            "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
             "X-Idempotency-Key": idempotency_key,
         }
@@ -4010,7 +4048,8 @@ class LojaBot(commands.Bot):
         if not self.http_session:
             raise RuntimeError("Sessao HTTP indisponivel")
 
-        if not MP_ACCESS_TOKEN:
+        token = get_mp_access_token()
+        if not token:
             raise RuntimeError("MP_ACCESS_TOKEN nao configurado")
 
         idempotency_key = f"pix2-{channel_id}-{user_id}-{int(time.time() * 1000)}"
@@ -4034,7 +4073,7 @@ class LojaBot(commands.Bot):
             payload["notification_url"] = MP_WEBHOOK_URL
 
         headers = {
-            "Authorization": f"Bearer {MP_ACCESS_TOKEN}",
+            "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
             "X-Idempotency-Key": idempotency_key,
         }
@@ -4060,7 +4099,8 @@ class LojaBot(commands.Bot):
         if not self.http_session:
             raise RuntimeError("Sessao HTTP indisponivel")
 
-        if not MP_ACCESS_TOKEN:
+        token = get_mp_access_token()
+        if not token:
             raise RuntimeError("MP_ACCESS_TOKEN nao configurado")
 
         idempotency_key = f"pix3-{channel_id}-{user_id}-{int(time.time() * 1000)}"
@@ -4084,7 +4124,7 @@ class LojaBot(commands.Bot):
             payload["notification_url"] = MP_WEBHOOK_URL
 
         headers = {
-            "Authorization": f"Bearer {MP_ACCESS_TOKEN}",
+            "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
             "X-Idempotency-Key": idempotency_key,
         }
@@ -4110,7 +4150,8 @@ class LojaBot(commands.Bot):
         if not self.http_session:
             raise RuntimeError("Sessao HTTP indisponivel")
 
-        if not MP_ACCESS_TOKEN:
+        token = get_mp_access_token()
+        if not token:
             raise RuntimeError("MP_ACCESS_TOKEN nao configurado")
 
         idempotency_key = f"pix4-{channel_id}-{user_id}-{int(time.time() * 1000)}"
@@ -4134,7 +4175,7 @@ class LojaBot(commands.Bot):
             payload["notification_url"] = MP_WEBHOOK_URL
 
         headers = {
-            "Authorization": f"Bearer {MP_ACCESS_TOKEN}",
+            "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
             "X-Idempotency-Key": idempotency_key,
         }
@@ -4160,7 +4201,8 @@ class LojaBot(commands.Bot):
         if not self.http_session:
             raise RuntimeError("Sessao HTTP indisponivel")
 
-        if not MP_ACCESS_TOKEN:
+        token = get_mp_access_token()
+        if not token:
             raise RuntimeError("MP_ACCESS_TOKEN nao configurado")
 
         idempotency_key = f"pix5-{channel_id}-{user_id}-{int(time.time() * 1000)}"
@@ -4184,7 +4226,7 @@ class LojaBot(commands.Bot):
             payload["notification_url"] = MP_WEBHOOK_URL
 
         headers = {
-            "Authorization": f"Bearer {MP_ACCESS_TOKEN}",
+            "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
             "X-Idempotency-Key": idempotency_key,
         }
