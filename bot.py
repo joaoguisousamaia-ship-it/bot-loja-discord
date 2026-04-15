@@ -947,6 +947,11 @@ def get_loja_channel_id_5() -> int | None:
     return parse_env_int(os.getenv("LOJA_CHANNEL_ID_5", "").strip(), "LOJA_CHANNEL_ID_5")
 
 
+def get_loja_channel_id_1() -> int | None:
+    load_env_file()
+    return parse_env_int(os.getenv("LOJA_CHANNEL_ID", "").strip(), "LOJA_CHANNEL_ID")
+
+
 def get_stock_alert_channel_id() -> int | None:
     load_env_file()
     return parse_env_int(
@@ -954,12 +959,27 @@ def get_stock_alert_channel_id() -> int | None:
     )
 
 
+def resolve_post_target_channel_id(
+    interaction: discord.Interaction,
+    explicit_channel: discord.TextChannel | None,
+    fallback_channel_id: int | None,
+) -> int | None:
+    if explicit_channel is not None:
+        return explicit_channel.id
+
+    # Prefer configured channel when available; current channel is last-resort fallback.
+    if fallback_channel_id is not None:
+        return fallback_channel_id
+
+    if isinstance(interaction.channel, discord.TextChannel):
+        return interaction.channel.id
+
+    return None
+
+
 async def user_can_post_products(
     interaction: discord.Interaction, role_id: int | None
 ) -> bool:
-    if not role_id:
-        return False
-
     guild = interaction.guild
     if guild is None:
         return False
@@ -973,6 +993,14 @@ async def user_can_post_products(
             member = await guild.fetch_member(interaction.user.id)
         except Exception:
             return False
+
+    # Fail-safe: server admins can still operate posting commands even if
+    # POSTAR_ROLE_ID is misconfigured or changed after a deploy.
+    if member.guild_permissions.administrator or member.guild_permissions.manage_guild:
+        return True
+
+    if not role_id:
+        return False
 
     return any(role.id == role_id for role in member.roles)
 
@@ -1512,7 +1540,7 @@ def build_product_embed_5() -> discord.Embed:
 
 def get_loja_channel_id_for_product(product: Product) -> int | None:
     if product.product_id == PRODUCT.product_id:
-        return LOJA_CHANNEL_ID_INT
+        return get_loja_channel_id_1() or LOJA_CHANNEL_ID_INT
     if product.product_id == PRODUCT2.product_id:
         return get_loja_channel_id_2() or LOJA_CHANNEL_ID_2_INT
     if product.product_id == PRODUCT3.product_id:
@@ -1602,12 +1630,46 @@ async def post_or_update_product_card(
     embed: discord.Embed,
     view: discord.ui.View,
     bot_user_id: int | None,
+    force_create: bool = False,
 ) -> tuple[str, discord.Message]:
     lock_path = acquire_product_post_file_lock(guild.id, channel.id, product.product_id)
     if lock_path is None:
         raise ProductPostInProgressError("post_in_progress")
 
     try:
+        if force_create:
+            sent_message = await channel.send(embed=embed, view=view)
+            set_product_message_ref(guild.id, channel.id, product.product_id, sent_message.id)
+
+            # Remove older cards to keep only the forced fresh post.
+            removed = 0
+            async for message in channel.history(limit=None):
+                if message.id == sent_message.id:
+                    continue
+                if bot_user_id and message.author.id != bot_user_id:
+                    continue
+                if not message.embeds:
+                    continue
+                if message_has_button_custom_id(message, f"comprar_{product.product_id}") or message_is_product_card_for(
+                    message,
+                    product,
+                ):
+                    try:
+                        await message.delete(reason="Remocao de card antigo apos forcar_novo")
+                        removed += 1
+                    except Exception:
+                        continue
+
+            if removed:
+                LOGGER.warning(
+                    "Cards antigos removidos apos forcar_novo. product_id=%s canal=%s removidos=%s",
+                    product.product_id,
+                    channel.id,
+                    removed,
+                )
+
+            return "created", sent_message
+
         stored_message_id = get_product_message_ref(guild.id, channel.id, product.product_id)
         had_stored_ref = bool(stored_message_id)
         if stored_message_id:
@@ -4187,6 +4249,7 @@ async def handle_postar_produto(
     loja_channel_id: int | None,
     canal_invalido_msg: str,
     sucesso_msg: str,
+    force_create: bool = False,
 ) -> None:
     await interaction.response.defer(ephemeral=True, thinking=True)
 
@@ -4205,7 +4268,27 @@ async def handle_postar_produto(
         RECENT_POST_INTERACTIONS[interaction_id] = now
 
     postar_role_id = get_postar_role_id()
-    if postar_role_id and not await user_can_post_products(interaction, postar_role_id):
+    if not postar_role_id:
+        member = interaction.user if isinstance(interaction.user, discord.Member) else None
+        has_admin_override = bool(
+            member
+            and (
+                member.guild_permissions.administrator
+                or member.guild_permissions.manage_guild
+            )
+        )
+        if not has_admin_override:
+            await interaction.followup.send(
+                "POSTAR_ROLE_ID nao configurado no .env.", ephemeral=True
+            )
+            return
+        LOGGER.warning(
+            "POSTAR_ROLE_ID ausente; usando fallback de admin. guild_id=%s user_id=%s",
+            interaction.guild_id,
+            interaction.user.id,
+        )
+
+    if not await user_can_post_products(interaction, postar_role_id):
         await interaction.followup.send(
             "Apenas o cargo configurado pode usar este comando.", ephemeral=True
         )
@@ -4229,118 +4312,190 @@ async def handle_postar_produto(
         return
     RECENT_POST_REQUESTS[request_key] = now
 
-    if loja_channel_id:
-        loja_channel = guild.get_channel(loja_channel_id)
-        if loja_channel is None:
-            try:
-                fetched = await guild.fetch_channel(loja_channel_id)
-                loja_channel = fetched if isinstance(fetched, discord.TextChannel) else None
-            except Exception:
-                loja_channel = None
+    if not loja_channel_id:
+        await interaction.followup.send(
+            "Canal da loja nao configurado no .env.", ephemeral=True
+        )
+        return
 
-        if not isinstance(loja_channel, discord.TextChannel):
-            await interaction.followup.send(canal_invalido_msg, ephemeral=True)
-            return
-
+    loja_channel = guild.get_channel(loja_channel_id)
+    if loja_channel is None:
         try:
-            action, message = await post_or_update_product_card(
-                guild,
-                loja_channel,
-                product,
-                get_product_embed_builder(product)(),
-                build_product_view_for(product, bot),
-                bot.user.id if bot.user else None,
-            )
-        except ProductPostInProgressError:
-            await interaction.followup.send(
-                "Uma postagem deste produto ja esta em andamento. Tente novamente em 2 segundos.",
-                ephemeral=True,
-            )
-            return
-        except ProductCardSyncError:
-            await interaction.followup.send(
-                (
-                    "Card anterior nao foi encontrado agora. Bloqueei esta tentativa para evitar duplicados. "
-                    "Execute o comando novamente para recriar com seguranca."
-                ),
-                ephemeral=True,
-            )
-            return
+            fetched = await guild.fetch_channel(loja_channel_id)
+            loja_channel = fetched if isinstance(fetched, discord.TextChannel) else None
         except Exception:
-            LOGGER.exception(
-                "Falha inesperada ao postar produto. guild_id=%s user_id=%s product_id=%s",
-                guild.id,
-                interaction.user.id,
-                product.product_id,
-            )
-            await interaction.followup.send(
-                "Erro inesperado ao postar o card. Tente novamente em alguns segundos.",
-                ephemeral=True,
-            )
-            return
+            loja_channel = None
 
-        if action == "updated":
-            await interaction.followup.send(
-                (
-                    "Produto ja estava postado; card atualizado com sucesso. "
-                    f"Mensagem: https://discord.com/channels/{guild.id}/{loja_channel.id}/{message.id}"
-                ),
-                ephemeral=True,
-            )
-            return
+    if not isinstance(loja_channel, discord.TextChannel):
+        await interaction.followup.send(canal_invalido_msg, ephemeral=True)
+        return
 
-    await interaction.followup.send(sucesso_msg, ephemeral=True)
+    try:
+        action, message = await post_or_update_product_card(
+            guild,
+            loja_channel,
+            product,
+            get_product_embed_builder(product)(),
+            build_product_view_for(product, bot),
+            bot.user.id if bot.user else None,
+            force_create=force_create,
+        )
+    except ProductPostInProgressError:
+        RECENT_POST_REQUESTS.pop(request_key, None)
+        await interaction.followup.send(
+            "Uma postagem deste produto ja esta em andamento. Tente novamente em 2 segundos.",
+            ephemeral=True,
+        )
+        return
+    except ProductCardSyncError:
+        # Allow immediate retry after strict sync guard blocks this attempt.
+        RECENT_POST_REQUESTS.pop(request_key, None)
+        await interaction.followup.send(
+            (
+                "Card anterior nao foi encontrado agora. Bloqueei esta tentativa para evitar duplicados. "
+                "Execute o comando novamente para recriar com seguranca."
+            ),
+            ephemeral=True,
+        )
+        return
+    except Exception:
+        RECENT_POST_REQUESTS.pop(request_key, None)
+        LOGGER.exception(
+            "Falha inesperada ao postar produto. guild_id=%s user_id=%s product_id=%s",
+            guild.id,
+            interaction.user.id,
+            product.product_id,
+        )
+        await interaction.followup.send(
+            "Erro inesperado ao postar o card. Tente novamente em alguns segundos.",
+            ephemeral=True,
+        )
+        return
+
+    if action == "updated":
+        LOGGER.info(
+            "Card de produto atualizado. guild_id=%s user_id=%s product_id=%s channel_id=%s message_id=%s",
+            guild.id,
+            interaction.user.id,
+            product.product_id,
+            loja_channel.id,
+            message.id,
+        )
+        await interaction.followup.send(
+            (
+                "Produto ja estava postado; card atualizado com sucesso. "
+                f"Mensagem: https://discord.com/channels/{guild.id}/{loja_channel.id}/{message.id}"
+            ),
+            ephemeral=True,
+        )
+    else:
+        LOGGER.info(
+            "Card de produto criado. guild_id=%s user_id=%s product_id=%s channel_id=%s message_id=%s",
+            guild.id,
+            interaction.user.id,
+            product.product_id,
+            loja_channel.id,
+            message.id,
+        )
+        await interaction.followup.send(
+            (
+                f"{sucesso_msg} "
+                f"Canal: <#{loja_channel.id}> "
+                f"Mensagem: https://discord.com/channels/{guild.id}/{loja_channel.id}/{message.id}"
+            ),
+            ephemeral=True,
+        )
 
 
 @app_commands.command(
     name="postar_produto", description="Posta o card do produto com botao de compra"
 )
-async def postar_produto(interaction: discord.Interaction) -> None:
+async def postar_produto(
+    interaction: discord.Interaction,
+    canal: discord.TextChannel | None = None,
+    forcar_novo: bool = False,
+) -> None:
+    target_channel_id = resolve_post_target_channel_id(
+        interaction,
+        canal,
+        get_loja_channel_id_1() or LOJA_CHANNEL_ID_INT,
+    )
     await handle_postar_produto(
         interaction,
         PRODUCT,
-        LOJA_CHANNEL_ID_INT,
+        target_channel_id,
         "Canal da loja invalido no .env.",
         "Produto postado com sucesso.",
+        force_create=forcar_novo,
     )
 
 
 @app_commands.command(
     name="postar_produto2", description="Posta o card do produto 2 com botao de compra"
 )
-async def postar_produto2(interaction: discord.Interaction) -> None:
+async def postar_produto2(
+    interaction: discord.Interaction,
+    canal: discord.TextChannel | None = None,
+    forcar_novo: bool = False,
+) -> None:
+    target_channel_id = resolve_post_target_channel_id(
+        interaction,
+        canal,
+        get_loja_channel_id_2(),
+    )
     await handle_postar_produto(
         interaction,
         PRODUCT2,
-        get_loja_channel_id_2(),
+        target_channel_id,
         "Canal da loja 2 invalido no .env.",
         "Produto 2 postado com sucesso.",
+        force_create=forcar_novo,
     )
 
 
 @app_commands.command(
     name="postar_produto3", description="Posta o card do produto 3 com botao de compra"
 )
-async def postar_produto3(interaction: discord.Interaction) -> None:
+async def postar_produto3(
+    interaction: discord.Interaction,
+    canal: discord.TextChannel | None = None,
+    forcar_novo: bool = False,
+) -> None:
+    target_channel_id = resolve_post_target_channel_id(
+        interaction,
+        canal,
+        get_loja_channel_id_3(),
+    )
     await handle_postar_produto(
         interaction,
         PRODUCT3,
-        get_loja_channel_id_3(),
+        target_channel_id,
         "Canal da loja 3 invalido no .env.",
         "Produto 3 postado com sucesso.",
+        force_create=forcar_novo,
     )
 
 
 @app_commands.command(
     name="postar_produto4", description="Posta o card do produto 4 com botao de compra"
 )
-async def postar_produto4(interaction: discord.Interaction) -> None:
+async def postar_produto4(
+    interaction: discord.Interaction,
+    canal: discord.TextChannel | None = None,
+    forcar_novo: bool = False,
+) -> None:
+    target_channel_id = resolve_post_target_channel_id(
+        interaction,
+        canal,
+        get_loja_channel_id_4(),
+    )
     await handle_postar_produto(
         interaction,
         PRODUCT4,
-        get_loja_channel_id_4(),
+        target_channel_id,
         "Canal da loja 4 invalido no .env.",
         "Produto 4 postado com sucesso.",
+        force_create=forcar_novo,
     )
 
 
@@ -4350,14 +4505,20 @@ async def postar_produto4(interaction: discord.Interaction) -> None:
 async def postar_produto5(
     interaction: discord.Interaction,
     canal: discord.TextChannel | None = None,
+    forcar_novo: bool = False,
 ) -> None:
-    target_channel_id = canal.id if canal else get_loja_channel_id_5()
+    target_channel_id = resolve_post_target_channel_id(
+        interaction,
+        canal,
+        get_loja_channel_id_5(),
+    )
     await handle_postar_produto(
         interaction,
         PRODUCT5,
         target_channel_id,
         "Canal da loja 5 invalido no .env.",
         "Produto 5 postado com sucesso.",
+        force_create=forcar_novo,
     )
 
 
@@ -4870,6 +5031,6 @@ try:
     acquire_bot_instance_lock()
 except RuntimeError as error:
     LOGGER.error(str(error))
-    sys.exit(0)
+    sys.exit(1)
 
 bot.run(BOT_TOKEN)
