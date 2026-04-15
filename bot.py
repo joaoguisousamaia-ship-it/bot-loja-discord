@@ -1013,7 +1013,7 @@ PRODUCT = Product(
     product_id="discord_nitro",
     nome="Discord Nitro 1 mês",
     preco=7.50,
-    estoque=20,
+    estoque=5,
     descricao=[
         "Nitro 1 tem duração de 1 mês",
         "Divirta-se usando seu nitro!",
@@ -1027,7 +1027,7 @@ PRODUCT2 = Product(
     product_id="discord_nitro_3",
     nome="Discord Nitro 3 meses",
     preco=12.50,
-    estoque=20,
+    estoque=5,
     descricao=[
         "Nitro tem duração de 3 meses",
         "Divirta-se usando seu nitro!",
@@ -1041,7 +1041,7 @@ PRODUCT3 = Product(
     product_id="conta_nitrada",
     nome="Conta nitrada",
     preco=10.00,
-    estoque=20,
+    estoque=5,
     descricao=[
         "Conta pronta para uso imediato.",
         "Acesso rapido e sem complicacao.",
@@ -1056,7 +1056,7 @@ PRODUCT4 = Product(
     product_id="conta_nitrada_3_meses",
     nome="Conta nitrada 3 meses",
     preco=15.00,
-    estoque=20,
+    estoque=5,
     descricao=[
         "Conta nitrada com duracao de 3 meses.",
         "Conta pronta para uso imediato.",
@@ -1070,7 +1070,7 @@ PRODUCT5 = Product(
     product_id="teste_1_real",
     nome="Produto teste",
     preco=1.00,
-    estoque=20,
+    estoque=5,
     descricao=[
         "Produto de teste com valor simbólico.",
         "Fluxo completo de checkout e pagamento.",
@@ -1172,7 +1172,7 @@ def get_delivery_codes(product: Product) -> list[str]:
 
 
 def get_delivery_stock(product: Product) -> int:
-    return len(get_delivery_codes(product))
+    return max(0, int(product.estoque))
 
 
 def update_delivery_codes_in_env(product: Product, codes: list[str]) -> None:
@@ -1251,30 +1251,6 @@ async def send_product_delivery_dm(
         )
         return "already_sent"
 
-    delivery_code = consume_delivery_code(product)
-    if not delivery_code:
-        LOGGER.info(
-            "Entrega manual sem codigo configurado. user_id=%s product_id=%s",
-            user_id,
-            product.product_id,
-        )
-        owner_alert = discord.Embed(
-            title="🚨 Estoque de codigos esgotado",
-            description=(
-                f"**Cliente:** <@{user_id}>\n"
-                f"**Produto:** {product.nome}\n"
-                f"**ID do pagamento:** `{payment_id}`\n"
-                "**Alerta:** Os codigos deste produto acabaram."
-            ),
-            color=discord.Color.orange(),
-        )
-        owner_alert.timestamp = discord.utils.utcnow()
-        owner_notified = await send_dm_to_owner(bot, owner_alert)
-        if not owner_notified:
-            await send_log(bot, owner_alert, channel_id=LOG_PAYMENT_CHANNEL_ID_INT)
-
-        return "missing_code"
-
     owner_delivery_embed = discord.Embed(
         title="📦 Entrega Manual Necessaria",
         description=(
@@ -1284,11 +1260,6 @@ async def send_product_delivery_dm(
             "**Prazo informado ao cliente:** ate 2 horas"
         ),
         color=discord.Color.blue(),
-    )
-    owner_delivery_embed.add_field(
-        name="Codigo para enviar manualmente",
-        value=f"```{delivery_code[:1000]}```",
-        inline=False,
     )
     owner_delivery_embed.timestamp = discord.utils.utcnow()
 
