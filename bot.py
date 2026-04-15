@@ -961,9 +961,17 @@ def get_stock_alert_channel_id() -> int | None:
 
 def get_tickets_category_id() -> int | None:
     load_env_file()
-    return parse_env_int(
+    dynamic_value = parse_env_int(
         os.getenv("TICKETS_CATEGORY_ID", "").strip(), "TICKETS_CATEGORY_ID"
     )
+    if dynamic_value:
+        return dynamic_value
+
+    # Fallbacks for environments where runtime variables are temporarily missing.
+    if TICKETS_CATEGORY_ID_INT:
+        return TICKETS_CATEGORY_ID_INT
+
+    return 1491544764263170050
 
 
 def get_mp_access_token() -> str:
