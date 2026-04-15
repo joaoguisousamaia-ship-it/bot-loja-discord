@@ -968,10 +968,41 @@ def get_tickets_category_id() -> int | None:
 
 def get_mp_access_token() -> str:
     load_env_file()
-    token = os.getenv("MP_ACCESS_TOKEN", "").strip()
-    if "#" in token:
-        token = token.split("#", 1)[0].strip()
-    return token.strip("\"'").strip()
+
+    def normalize(raw: str) -> str:
+        token_value = (raw or "").strip()
+        if "#" in token_value:
+            token_value = token_value.split("#", 1)[0].strip()
+        return token_value.strip("\"'").strip()
+
+    candidate_keys = [
+        "MP_ACCESS_TOKEN",
+        "MERCADO_PAGO_ACCESS_TOKEN",
+        "MERCADOPAGO_ACCESS_TOKEN",
+        "MP_TOKEN",
+    ]
+
+    for key in candidate_keys:
+        token = normalize(os.getenv(key, ""))
+        if token:
+            return token
+
+    for key in candidate_keys:
+        raw_value, found = read_env_value(key)
+        if not found:
+            continue
+        token = normalize(raw_value)
+        if token:
+            return token
+
+    return ""
+
+
+def has_available_stock() -> bool:
+    for product in (PRODUCT, PRODUCT2, PRODUCT3, PRODUCT4, PRODUCT5):
+        if get_delivery_stock(product) > 0:
+            return True
+    return False
 
 
 def resolve_post_target_channel_id(
@@ -2003,6 +2034,13 @@ class SupportTicketPanelView(discord.ui.View):
             )
             return
 
+        if ticket_type == "comprar" and not has_available_stock():
+            await interaction.response.send_message(
+                "Nenhum produto esta com estoque no momento.",
+                ephemeral=True,
+            )
+            return
+
         existing_ticket = discord.utils.find(
             lambda c: isinstance(c, discord.TextChannel)
             and (c.topic or "").startswith(
@@ -2043,13 +2081,33 @@ class SupportTicketPanelView(discord.ui.View):
                 )
 
         tickets_category_id = get_tickets_category_id()
-        category = guild.get_channel(tickets_category_id) if tickets_category_id else None
+        if not tickets_category_id:
+            await interaction.response.send_message(
+                "Categoria de tickets nao configurada no .env (TICKETS_CATEGORY_ID).",
+                ephemeral=True,
+            )
+            return
+
+        category = guild.get_channel(tickets_category_id)
+        if category is None:
+            try:
+                category = await guild.fetch_channel(tickets_category_id)
+            except Exception:
+                category = None
+
+        if not isinstance(category, discord.CategoryChannel):
+            await interaction.response.send_message(
+                "A categoria configurada em TICKETS_CATEGORY_ID e invalida.",
+                ephemeral=True,
+            )
+            return
+
         channel_name = sanitize_ticket_channel_name(ticket_type, str(interaction.user.id)[-5:])
         
         try:
             ticket_channel = await guild.create_text_channel(
                 name=channel_name,
-                category=category if isinstance(category, discord.CategoryChannel) else None,
+                category=category,
                 topic=f"support_ticket:{ticket_type}:{interaction.user.id}:0",
                 overwrites=overwrites,
                 reason=f"Ticket de suporte ({ticket_type}) para {interaction.user}",
@@ -2451,10 +2509,30 @@ async def handle_checkout_click(
             }
 
             tickets_category_id = get_tickets_category_id()
-            category = guild.get_channel(tickets_category_id) if tickets_category_id else None
+            if not tickets_category_id:
+                await interaction.followup.send(
+                    "Categoria de checkout nao configurada no .env (TICKETS_CATEGORY_ID).",
+                    ephemeral=True,
+                )
+                return
+
+            category = guild.get_channel(tickets_category_id)
+            if category is None:
+                try:
+                    category = await guild.fetch_channel(tickets_category_id)
+                except Exception:
+                    category = None
+
+            if not isinstance(category, discord.CategoryChannel):
+                await interaction.followup.send(
+                    "A categoria configurada em TICKETS_CATEGORY_ID e invalida.",
+                    ephemeral=True,
+                )
+                return
+
             compra_channel = await guild.create_text_channel(
                 name=channel_name,
-                category=category if isinstance(category, discord.CategoryChannel) else None,
+                category=category,
                 topic=topic_value,
                 overwrites=overwrites,
                 reason=f"Checkout ({checkout_type}) para {interaction.user}",
