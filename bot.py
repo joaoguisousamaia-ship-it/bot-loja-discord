@@ -967,14 +967,8 @@ def resolve_post_target_channel_id(
     if explicit_channel is not None:
         return explicit_channel.id
 
-    # Prefer configured channel when available; current channel is last-resort fallback.
-    if fallback_channel_id is not None:
-        return fallback_channel_id
-
-    if isinstance(interaction.channel, discord.TextChannel):
-        return interaction.channel.id
-
-    return None
+    # Always prefer configured channel from .env; avoid accidental posts in current channel.
+    return fallback_channel_id
 
 
 async def user_can_post_products(
@@ -4441,7 +4435,7 @@ async def postar_produto2(
     target_channel_id = resolve_post_target_channel_id(
         interaction,
         canal,
-        get_loja_channel_id_2(),
+        get_loja_channel_id_2() or LOJA_CHANNEL_ID_2_INT,
     )
     await handle_postar_produto(
         interaction,
@@ -4464,7 +4458,7 @@ async def postar_produto3(
     target_channel_id = resolve_post_target_channel_id(
         interaction,
         canal,
-        get_loja_channel_id_3(),
+        get_loja_channel_id_3() or LOJA_CHANNEL_ID_3_INT,
     )
     await handle_postar_produto(
         interaction,
@@ -4487,7 +4481,7 @@ async def postar_produto4(
     target_channel_id = resolve_post_target_channel_id(
         interaction,
         canal,
-        get_loja_channel_id_4(),
+        get_loja_channel_id_4() or LOJA_CHANNEL_ID_4_INT,
     )
     await handle_postar_produto(
         interaction,
@@ -4510,7 +4504,7 @@ async def postar_produto5(
     target_channel_id = resolve_post_target_channel_id(
         interaction,
         canal,
-        get_loja_channel_id_5(),
+        get_loja_channel_id_5() or LOJA_CHANNEL_ID_5_INT or LOJA_CHANNEL_ID_INT,
     )
     await handle_postar_produto(
         interaction,
